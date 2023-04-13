@@ -14,19 +14,18 @@ def load_zone():
     return jsonzone
 
 
+zonedata = load_zone()
+
+
 def getzone(domain):
     global zonedata
-    zone_name = '.'.join(domain)+"."
+    zone_name = '.'.join(domain)
     return zonedata[zone_name]
-
-
-zonedata = load_zone()
 
 
 def getflags(flags):
     byte1 = bytes(flags[:1])
     byte2 = bytes(flags[1:2])
-
     rflags = ''
     QR = '1'
     OPCODE = ''
@@ -43,6 +42,7 @@ def getflags(flags):
 
 
 def getquestiondomain(data):
+
     state = 0
     expectedlength = 0
     domainstring = ''
@@ -66,7 +66,9 @@ def getquestiondomain(data):
             state = 1
             expectedlength = byte
         y += 1
+
     questiontype = data[y:y+2]
+
     return (domainparts, questiontype)
 
 
@@ -79,15 +81,33 @@ def getrecs(data):
     return (zone[qt], qt, domain)
 
 
+def rectobytes(domainname, rectype, recttl, recval):
+
+    rbytes = b'\xc0\x0c'
+
+    if rectype == 'a':
+        rbytes = rbytes + bytes([0]) + bytes([1])
+
+    rbytes = rbytes + bytes([0]) + bytes([1])
+
+    rbytes += int(recttl).to_bytes(4, byteorder='big')
+
+    if rectype == 'a':
+        rbytes = rbytes + bytes([0]) + bytes([4])
+
+        for part in recval.split('.'):
+            rbytes += bytes([int(part)])
+    return rbytes
+
+
 def buildresponse(data):
     TransactionID = data[:2]
 
     Flags = getflags(data[2:4])
 
     QDCOUNT = b'\x00\x01'
-    getquestiondomain(data[12:])
-    getrecs(data[12:])
     ANCOUNT = len(getrecs(data[12:])[0]).to_bytes(2, byteorder='big')
+    print(ANCOUNT)
     NSCOUNT = (0).to_bytes(2, byteorder='big')
     ARCOUNT = (0).to_bytes(2, byteorder='big')
     dnsheader = TransactionID + Flags + QDCOUNT + ANCOUNT + NSCOUNT + ARCOUNT
@@ -95,18 +115,23 @@ def buildresponse(data):
     dnsbody = b''
     records, rectype, domainname = getrecs(data[12:])
     dnsquestion = buildquestion(domainname, rectype)
+    for record in records:
+        dnsbody += rectobytes(domainname, rectype,
+                              record["ttl"], record["value"])
+    return dnsheader+dnsquestion+dnsbody
 
 
 def buildquestion(domainname, rectype):
-    dnsquestion = b''
+    qbytes = b''
     for part in domainname:
-        dnsquestion += len(part).to_bytes(1, byteorder='big')
-        dnsquestion += bytes(part, 'utf-8')
-    dnsquestion += b'\x00'
+        length = len(part)
+        qbytes += bytes([length])
+        for char in part:
+            qbytes += ord(char).to_bytes(1, byteorder='big')
     if rectype == 'a':
-        dnsquestion += b'\x00\x01'
-    dnsquestion += b'\x00\x01'
-    return dnsquestion
+        qbytes += (1).to_bytes(2, byteorder='big')
+    qbytes += (1).to_bytes(2, byteorder='big')
+    return qbytes
 
 
 port = 53
